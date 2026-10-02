@@ -1,0 +1,131 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { LayoutDashboard, FileText, ShieldCheck, Clock3, AlertTriangle, Search, Plus, Pencil, Trash2, X, CalendarDays, UploadCloud, ChevronDown, Bell, Menu } from 'lucide-react';
+import './styles.css';
+
+const API = 'http://localhost:4000/api';
+const initialDocs = [
+  { id: '1', name: 'Passport', category: 'Identity', number: 'P•••••4821', issueDate: '2021-05-12', expiryDate: '2027-05-11', notes: 'Keep a digital copy.' },
+  { id: '2', name: 'Driving Licence', category: 'Identity', number: 'DL•••••219', issueDate: '2020-11-20', expiryDate: '2026-10-19', notes: '' },
+  { id: '3', name: 'Health Insurance', category: 'Insurance', number: 'HI•••••640', issueDate: '2025-01-01', expiryDate: '2026-10-10', notes: 'Renew with provider.' },
+  { id: '4', name: 'Vehicle Insurance', category: 'Insurance', number: 'VI•••••102', issueDate: '2025-12-15', expiryDate: '2026-12-14', notes: '' },
+  { id: '5', name: 'Aadhaar Card', category: 'Identity', number: 'XXXX XXXX 6231', issueDate: '2018-08-01', expiryDate: '2030-08-01', notes: '' }
+];
+const today = () => new Date().toISOString().slice(0, 10);
+function statusFor(date) {
+  const diff = Math.ceil((new Date(`${date}T00:00:00`) - new Date(`${today()}T00:00:00`)) / 86400000);
+  if (diff < 0) return 'Expired';
+  if (diff <= 30) return 'Expiring Soon';
+  return 'Active';
+}
+function fmt(date) { return new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }); }
+
+function App() {
+  const [docs, setDocs] = useState([]);
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('All Documents');
+  const [modal, setModal] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [notice, setNotice] = useState('');
+  const [form, setForm] = useState({ name: '', category: 'Identity', number: '', issueDate: today(), expiryDate: '', notes: '' });
+
+  async function load() {
+    try {
+      const res = await fetch(`${API}/documents`);
+      if (!res.ok) throw new Error('API unavailable');
+      setDocs(await res.json());
+    } catch { setDocs(initialDocs); }
+  }
+  useEffect(() => { load(); }, []);
+  const enriched = useMemo(() => docs.map(d => ({ ...d, status: statusFor(d.expiryDate) })), [docs]);
+  const filtered = enriched.filter(d => (filter === 'All Documents' || d.status === filter) &&
+    `${d.name} ${d.category} ${d.number}`.toLowerCase().includes(search.toLowerCase()));
+  const counts = {
+    total: docs.length,
+    active: enriched.filter(d => d.status === 'Active').length,
+    soon: enriched.filter(d => d.status === 'Expiring Soon').length,
+    expired: enriched.filter(d => d.status === 'Expired').length
+  };
+  const expiring = enriched.filter(d => d.status === 'Expiring Soon' || d.status === 'Expired')
+    .sort((a,b) => a.expiryDate.localeCompare(b.expiryDate)).slice(0, 4);
+
+  function openAdd() {
+    setEditing(null); setForm({ name: '', category: 'Identity', number: '', issueDate: today(), expiryDate: '', notes: '' }); setModal(true);
+  }
+  function openEdit(doc) {
+    setEditing(doc); setForm({ name: doc.name, category: doc.category, number: doc.number, issueDate: doc.issueDate || today(), expiryDate: doc.expiryDate, notes: doc.notes || '' }); setModal(true);
+  }
+  async function save(e) {
+    e.preventDefault();
+    if (!form.name.trim() || !form.expiryDate) return;
+    const payload = { ...form, name: form.name.trim() };
+    try {
+      const url = editing ? `${API}/documents/${editing.id}` : `${API}/documents`;
+      const res = await fetch(url, { method: editing ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error('API unavailable');
+      await load();
+    } catch {
+      setDocs(prev => editing ? prev.map(d => d.id === editing.id ? { ...d, ...payload } : d) : [{ ...payload, id: String(Date.now()) }, ...prev]);
+    }
+    setModal(false); setNotice(editing ? 'Document updated successfully' : 'Document added successfully');
+    setTimeout(() => setNotice(''), 2500);
+  }
+  async function remove(doc) {
+    if (!confirm(`Delete "${doc.name}"?`)) return;
+    try { await fetch(`${API}/documents/${doc.id}`, { method: 'DELETE' }); } catch {}
+    setDocs(prev => prev.filter(d => d.id !== doc.id));
+  }
+
+  return <div className="app-shell">
+    <aside className="sidebar">
+      <div className="brand"><div className="brand-icon"><ShieldCheck size={22}/></div><div><strong>DocuSafe</strong><small>PERSONAL VAULT</small></div></div>
+      <div className="nav-label">WORKSPACE</div>
+      <button className="nav-item active"><LayoutDashboard size={18}/> Dashboard</button>
+      <button className="nav-item" onClick={() => setFilter('All Documents')}><FileText size={18}/> My Documents <span className="nav-count">{docs.length}</span></button>
+      <div className="nav-label second">PREFERENCES</div>
+      <div className="secure-card"><div className="secure-icon"><ShieldCheck size={18}/></div><b>Your documents, organized.</b><p>Keep track of important dates and stay one step ahead.</p><span><span className="green-dot"/> Your vault is ready</span></div>
+      <div className="profile"><div className="avatar">JD</div><div><b>Jamie Doe</b><small>Personal account</small></div><ChevronDown size={16} className="profile-chevron"/></div>
+    </aside>
+    <main className="main">
+      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><b>/</b> Dashboard</div><div className="top-actions"><span className="today"><CalendarDays size={15}/> {new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</span><button className="icon-button" aria-label="Notifications"><Bell size={18}/><i/></button><div className="mini-avatar">JD</div></div></header>
+      <section className="welcome"><div><div className="eyebrow">YOUR PERSONAL VAULT</div><h1>Good morning, Jamie <span>✦</span></h1><p>Here's the latest overview of your important documents.</p></div><button className="primary-btn" onClick={openAdd}><Plus size={18}/> Add document</button></section>
+      <section className="stats">
+        <Stat icon={<FileText/>} label="Total documents" value={counts.total} foot="Across all categories" tone="blue"/>
+        <Stat icon={<ShieldCheck/>} label="Active documents" value={counts.active} foot="You're all covered" tone="green"/>
+        <Stat icon={<Clock3/>} label="Expiring soon" value={counts.soon} foot="Within the next 30 days" tone="orange"/>
+        <Stat icon={<AlertTriangle/>} label="Expired documents" value={counts.expired} foot="Needs your attention" tone="red"/>
+      </section>
+      <section className="content-grid">
+        <div className="panel documents-panel">
+          <div className="panel-head"><div><h2>My documents</h2><p>Manage and keep an eye on your documents.</p></div><button className="text-btn" onClick={openAdd}><Plus size={16}/> Add new</button></div>
+          <div className="toolbar"><div className="searchbox"><Search size={17}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search documents..." /></div><select value={filter} onChange={e=>setFilter(e.target.value)} aria-label="Filter by status"><option>All Documents</option><option>Active</option><option>Expiring Soon</option><option>Expired</option></select></div>
+          <div className="table-wrap"><table><thead><tr><th>DOCUMENT NAME</th><th>EXPIRY DATE</th><th>STATUS</th><th className="action-col">ACTIONS</th></tr></thead><tbody>
+            {filtered.map(doc => <tr key={doc.id}><td><div className="doc-cell"><div className={`doc-icon ${doc.category === 'Insurance' ? 'purple' : ''}`}><FileText size={18}/></div><div><b>{doc.name}</b><small>{doc.category} · {doc.number || 'No number added'}</small></div></div></td><td><span className="expiry-date">{fmt(doc.expiryDate)}</span><small className="subdate">{doc.status === 'Expired' ? 'Expired' : doc.status === 'Expiring Soon' ? 'Action recommended' : 'On track'}</small></td><td><Status status={doc.status}/></td><td><div className="actions"><button title="Edit" onClick={()=>openEdit(doc)}><Pencil size={15}/></button><button title="Delete" onClick={()=>remove(doc)}><Trash2 size={15}/></button></div></td></tr>)}
+            {!filtered.length && <tr><td colSpan="4" className="empty">No documents found. Try changing your search or add a document.</td></tr>}
+          </tbody></table></div>
+          <div className="table-footer"><span>Showing <b>{filtered.length}</b> of <b>{docs.length}</b> documents</span><span className="footer-live"><span className="green-dot"/> All changes saved</span></div>
+        </div>
+        <div className="side-panels">
+          <div className="panel watch-panel"><div className="panel-head"><div><h2>Expiry watch</h2><p>Documents that need attention.</p></div><span className="alert-count">{expiring.length}</span></div>
+            {expiring.length ? <div className="watch-list">{expiring.map(doc=><div className="watch-item" key={doc.id}><div className={`watch-icon ${doc.status==='Expired'?'watch-red':''}`}><Clock3 size={17}/></div><div className="watch-info"><b>{doc.name}</b><small>{doc.status==='Expired'?'Expired on':'Expires on'} {fmt(doc.expiryDate)}</small></div><span className={`watch-days ${doc.status==='Expired'?'red-text':''}`}>{doc.status==='Expired'?'Overdue':`${Math.max(0,Math.ceil((new Date(doc.expiryDate)-new Date(today()))/86400000))} days`}</span></div>)}</div> : <div className="all-clear"><ShieldCheck size={27}/><b>You're all caught up!</b><span>No documents need attention right now.</span></div>}
+            <div className="watch-foot"><AlertTriangle size={15}/> We recommend renewing documents before they expire.</div>
+          </div>
+          <div className="panel tip-panel"><div className="tip-symbol">✦</div><div><b>A little tip</b><p>Keep your documents up to date by checking this dashboard once a month.</p></div></div>
+          <div className="upload-card"><div className="upload-symbol"><UploadCloud size={21}/></div><div><b>Keep everything in one place</b><p>File upload UI ready — connect storage to enable uploads.</p></div></div>
+        </div>
+      </section>
+      <footer>© 2026 DocuSafe <span>Made for peace of mind <span className="heart">♥</span></span></footer>
+    </main>
+    {notice && <div className="toast"><ShieldCheck size={17}/>{notice}</div>}
+    {modal && <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setModal(false)}}><form className="modal" onSubmit={save}><div className="modal-head"><div><h2>{editing?'Edit document':'Add a document'}</h2><p>Enter the details you want to keep track of.</p></div><button type="button" className="close-btn" onClick={()=>setModal(false)}><X size={20}/></button></div>
+      <label>Document name *<input required value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="e.g. Passport"/></label>
+      <div className="form-row"><label>Category<select value={form.category} onChange={e=>setForm({...form,category:e.target.value})}><option>Identity</option><option>Insurance</option><option>Vehicle</option><option>Education</option><option>Other</option></select></label><label>Document number<input value={form.number} onChange={e=>setForm({...form,number:e.target.value})} placeholder="Optional"/></label></div>
+      <div className="form-row"><label>Issue date<input type="date" value={form.issueDate} onChange={e=>setForm({...form,issueDate:e.target.value})}/></label><label>Expiry date *<input required type="date" value={form.expiryDate} onChange={e=>setForm({...form,expiryDate:e.target.value})}/></label></div>
+      <label>Notes<textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} placeholder="Add a reminder or note..." rows="3"/></label>
+      <div className="modal-actions"><button type="button" className="cancel-btn" onClick={()=>setModal(false)}>Cancel</button><button type="submit" className="primary-btn">{editing?'Save changes':'Add document'}</button></div>
+    </form></div>}
+  </div>;
+}
+function Stat({icon,label,value,foot,tone}) { return <div className="stat-card"><div className={`stat-icon ${tone}`}>{icon}</div><div className="stat-label">{label}</div><div className="stat-value">{value}</div><div className="stat-foot">{foot}</div></div>; }
+function Status({status}) { const cls=status==='Active'?'status-active':status==='Expired'?'status-expired':'status-soon'; return <span className={`status ${cls}`}><i/>{status}</span>; }
+createRoot(document.getElementById('root')).render(<App/>);
